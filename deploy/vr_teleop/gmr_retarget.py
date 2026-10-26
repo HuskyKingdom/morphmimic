@@ -38,7 +38,9 @@ STAND_FILE = CONFIG_DIR / "stand.json"
 # GMR's name for each robot, and the MJCF its IK runs on. The G1 uses GMR's own model
 # and config (its mocap variant has the toe bodies the config targets); the X2 and T2
 # use our training MJCFs.
-GMR_ROBOT = {"g1": "unitree_g1", "x2": "agibot_x2_ultra", "t2": "booster_t2"}
+# The 23-DoF G1 retargets onto GMR's 29-DoF G1; `gmr_streamer` zeroes its locked joints.
+GMR_ROBOT = {"g1": "unitree_g1", "x2": "agibot_x2_ultra", "t2": "booster_t2",
+             "g1_23": "unitree_g1"}
 ROBOT_XML = {
   "x2": REPO / "src/morphmimic/robots/agibot_x2_ultra/xmls/x2_ultra.xml",
   "t2": REPO / "src/morphmimic/robots/booster_t2/xmls/t2.xml",

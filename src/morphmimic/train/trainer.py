@@ -256,7 +256,7 @@ class TrainCfg:
   """Subset yaml of the run's clips (single-robot runs; required there). Multi-robot
   runs use `subset_yamls` and save each rank's own here."""
   robot: str = "g1"
-  """Robot of the run (`morphmimic.robots` registry name: "g1", "x2", "t2"); the clips
+  """Robot of the run (`morphmimic.robots` registry name: "g1", "x2", "t2", "g1_23"); the clips
   of `subset_yaml` must be this robot's. Multi-robot runs ignore it and save each
   rank's robot here."""
   num_envs: int = 4096

@@ -4,6 +4,11 @@ The canonical joint order is the G1's (`constants.JOINT_NAMES`, 29 slots). Each 
 maps its native hinge order onto it by function with a permutation, a sign and an
 offset per slot; joints with no canonical slot (the
 X2/T2 heads) are untracked and held at their default.
+
+A robot that lacks some canonical joints (the 23-DoF G1: no waist roll / pitch, no wrist
+pitch / yaw) keeps them in its model as locked hinges (`RobotSpec.locked_joints`): a
+joint range of a few mrad with a stiff limit, so every layout stays 29 slots and the
+locked slots read (almost) zero in simulation and exactly zero on hardware.
 """
 
 from __future__ import annotations
@@ -134,6 +139,10 @@ class RobotSpec:
   contact_budget: tuple[int, int]  # (nconmax, njmax)
   # Bodies left out of the lowest-body-height statistic.
   zmin_exclude_regex: str | None = None
+  locked_joints: tuple[str, ...] = ()
+  """Native joints the real robot does not have, locked at zero in the model. Their
+  reference angles are zeroed when clips are converted, and on hardware they read zero
+  and get no command."""
 
   @property
   def imu_slot(self) -> int:

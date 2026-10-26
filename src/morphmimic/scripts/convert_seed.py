@@ -5,7 +5,8 @@ Example:
     --out-dir $DATA/seed_g1_npz50 --metadata $DATA/seed/seed_metadata_v003.csv \
     --workers 120
 
-For the X2 / T2, pass `--robot x2` / `--robot t2` with their retargeted CSVs.
+For the X2 / T2, pass `--robot x2` / `--robot t2` with their retargeted CSVs. For the
+23-DoF G1, pass `--robot g1_23` with the G1 CSVs: its locked joints are zeroed.
 """
 
 from __future__ import annotations
@@ -36,7 +37,7 @@ def main(
     workers: number of conversion processes.
     limit: convert only the first `limit` clips (sorted by path).
     overwrite: reconvert clips whose npz already exists.
-    robot: robot registry name (g1, x2, t2).
+    robot: robot registry name (g1, x2, t2, g1_23).
   """
   df = convert_all(
     csv_dir,

@@ -1,0 +1,19 @@
+# Build context of docker/Dockerfile: the code only.
+.git
+.venv
+**/__pycache__
+*.pyc
+logs/
+wandb/
+outputs/
+data/
+assets/
+videos/
+out/
+*.sif
+*.tar
+*.tar.gz
+# Teleop and hardware only (the deployment PC); uv needs GMR's pyproject.toml alone.
+third_party/GMR/*
+!third_party/GMR/pyproject.toml
+third_party/unitree_sdk2_wrapper/

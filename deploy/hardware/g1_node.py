@@ -36,8 +36,15 @@ policy answers; its first answer takes over again, on the stand (B damps). With
 back to the PD stand and holds it: A runs the policy again, B damps.
 
   uv run --group export python -m deploy.hardware.g1_node --deploy <deploy_dir> \\
-    --net <iface> [--kp-scale 1.0] [--max-steps 1500] [--policy-host 127.0.0.1] \\
-    [--record ticks.npz]
+    --net <iface> [--robot g1|g1_23] [--motor-layout sdk|compact] [--kp-scale 1.0] \\
+    [--max-steps 1500] [--policy-host 127.0.0.1] [--record ticks.npz]
+
+The 23-DoF G1 (`--robot g1_23`, an export of a g1_23 run): its locked joints (waist roll /
+pitch, wrist pitch / yaw) have no motor. They read zero, as the policy saw them in
+training, and get kp = kd = 0. Its motors are numbered by `--motor-layout`: `sdk` (the
+default), the 29-slot order of Unitree SDK2's `G1JointIndex` with slots 13, 14, 20, 21,
+27 and 28 empty; `compact`, motors 0..22 without gaps. Check which one the robot reports
+with `deploy/hardware/probe_motors.py` before the first run.
 
 Its logic runs against any object with the SDK's methods (`G1Node(sdk, ...)`), so it
 can be tested with a fake SDK, without a robot.
@@ -68,6 +75,7 @@ KEYS = {"R1": 0x0001, "L1": 0x0002, "start": 0x0004, "select": 0x0008, "R2": 0x0
         "L2": 0x0020, "F1": 0x0040, "F2": 0x0080, "A": 0x0100, "B": 0x0200, "X": 0x0400,
         "Y": 0x0800, "up": 0x1000, "right": 0x2000, "down": 0x4000, "left": 0x8000}
 STAND, GO, DAMP, KILL, CUE = "start", "A", "B", "select", "Y"
+MOTOR_LAYOUTS = ("sdk", "compact")
 
 
 def pressed(ctrl, name: str) -> bool:
@@ -76,6 +84,24 @@ def pressed(ctrl, name: str) -> bool:
 
 class Exit(Exception):
   """SELECT: damp and leave."""
+
+
+def motor_map(robot: Robot, layout: str = "sdk") -> np.ndarray:
+  """The motor index of each native joint, -1 for a locked joint (no motor).
+
+  `sdk`: the motor index is the native index (the G1's 29-slot order; a locked joint's
+  slot stays empty). `compact`: the joints that are not locked take motors 0, 1, ... in
+  native order."""
+  if layout not in MOTOR_LAYOUTS:
+    raise ValueError(f"unknown motor layout {layout!r}; expected one of {MOTOR_LAYOUTS}")
+  motor = np.arange(robot.num_native)
+  if layout == "compact":
+    if not len(robot.locked):
+      raise ValueError(f"the compact motor layout needs locked joints; {robot.name} has none")
+    keep = np.setdiff1d(motor, robot.locked)
+    motor[keep] = np.arange(len(keep))
+  motor[robot.locked] = -1
+  return motor
 
 
 @dataclass
@@ -111,10 +137,13 @@ class G1Node:
                action_wait_s: float = 0.010, action_timeout_s: float = 0.25,
                max_steps: int | None = None, clock=time.perf_counter, sleep=time.sleep,
                record: Recording | None = None,
-               state_port: int = protocol.STATE_PORT, action_port: int = protocol.ACTION_PORT):
+               state_port: int = protocol.STATE_PORT, action_port: int = protocol.ACTION_PORT,
+               motor_layout: str = "sdk"):
     self.sdk, self.robot, self.gains = sdk, robot, gains
-    self.stand_q = np.asarray(stand_q, float)
     self.n = robot.num_native
+    self.motor = motor_map(robot, motor_layout)
+    self.has_motor = self.motor >= 0
+    self.stand_q = np.where(self.has_motor, np.asarray(stand_q, float), 0.0)
     self.dt = robot.control_dt
     self.action_wait_s, self.action_timeout_s = action_wait_s, action_timeout_s
     self.max_steps = max_steps
@@ -128,17 +157,29 @@ class G1Node:
     self.action_in.close()
     self.state_out.close()
 
-  # SDK access.
+  # SDK access. The SDK's motor arrays (n slots, `motor_map` order) <-> native joint
+  # order: a locked joint reads 0, and the motor slots without a joint get zeros.
+
+  def _native(self, motor_values) -> np.ndarray:
+    values = np.asarray(motor_values, float)
+    out = np.zeros(self.n)
+    out[self.has_motor] = values[self.motor[self.has_motor]]
+    return out
+
+  def _to_motor(self, native: np.ndarray) -> list[float]:
+    out = np.zeros(self.n)
+    out[self.motor[self.has_motor]] = np.asarray(native, float)[self.has_motor]
+    return [float(x) for x in out]
 
   def _q(self) -> np.ndarray:
-    return np.asarray(self.sdk.read_low_state().motor.q[: self.n], float)
+    return self._native(self.sdk.read_low_state().motor.q)
 
   def _send(self, q_target: np.ndarray, kp: np.ndarray, kd: np.ndarray) -> None:
     cmd = self.sdk.create_zero_command()
-    cmd.q_target = [float(x) for x in q_target]
+    cmd.q_target = self._to_motor(q_target)
     cmd.dq_target = [0.0] * self.n
-    cmd.kp = [float(x) for x in kp]
-    cmd.kd = [float(x) for x in kd]
+    cmd.kp = self._to_motor(kp)
+    cmd.kd = self._to_motor(kd)
     cmd.tau_ff = [0.0] * self.n
     self.sdk.write_low_command(cmd)
 
@@ -220,8 +261,8 @@ class G1Node:
       state = self.sdk.read_low_state()
       quat = np.asarray(state.imu.quat, float)  # wxyz
       gyro = np.asarray(state.imu.omega, float)  # body frame
-      q = np.asarray(state.motor.q[: self.n], float)
-      dq = np.asarray(state.motor.dq[: self.n], float)
+      q = self._native(state.motor.q)
+      dq = self._native(state.motor.dq)
       sent = step
       try:  # At most 2 ms on a missing policy node (then: a late action).
         # No pose source yet: the pose goes as NaN (the SE(3) LIO plugs in here).
@@ -302,10 +343,11 @@ def stand_pose(robot: Robot, which: str) -> np.ndarray:
 
 
 def make_node(deploy_dir: Path, net: str, stand: str = "neutral", kp_scale: float = 1.0,
-              **kwargs) -> G1Node:
-  """The node on the real G1 (needs `unitree_interface`). Raises RuntimeError for an
-  export of the robot goal anchor, which needs a pose source the G1 does not have yet."""
-  full = json.loads((Path(deploy_dir) / "g1.json").read_text())
+              robot_name: str = "g1", **kwargs) -> G1Node:
+  """The node on the real G1 (needs `unitree_interface`), `robot_name` "g1" or "g1_23"
+  (the 23-DoF G1). Raises RuntimeError for an export of the robot goal anchor, which
+  needs a pose source the G1 does not have yet."""
+  full = json.loads((Path(deploy_dir) / f"{robot_name}.json").read_text())
   if full.get("goal_anchor", "reference") == "robot":
     raise RuntimeError(NO_POSE_SOURCE)
   import unitree_interface
@@ -313,7 +355,10 @@ def make_node(deploy_dir: Path, net: str, stand: str = "neutral", kp_scale: floa
   doc = full["robot"]
   robot = Robot.from_dict(doc)
   gains = Gains.from_deploy(doc, kp_scale)
-  print(f"[g1_node] gains from {deploy_dir}/g1.json (x{kp_scale} kp): kp "
+  if len(robot.locked):
+    print(f"[g1_node] {robot.name}: no motors on the locked joints "
+          f"{[robot.native_joint_names[i] for i in robot.locked]}", flush=True)
+  print(f"[g1_node] gains from {deploy_dir}/{robot_name}.json (x{kp_scale} kp): kp "
         f"{gains.kp.min():.1f}..{gains.kp.max():.1f}, kd {gains.kd.min():.2f}..{gains.kd.max():.2f}",
         flush=True)
   sdk = unitree_interface.UnitreeInterface.create_g1(net)
@@ -328,6 +373,10 @@ def main() -> None:
   parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
   parser.add_argument("--deploy", type=Path, required=True, help="export_onnx.py folder")
   parser.add_argument("--net", required=True, help="network interface to the robot (DDS)")
+  parser.add_argument("--robot", choices=["g1", "g1_23"], default="g1",
+                      help="g1_23: the 23-DoF G1 (an export of a g1_23 run)")
+  parser.add_argument("--motor-layout", choices=MOTOR_LAYOUTS, default="sdk",
+                      help="g1_23: motor numbering (check with deploy/hardware/probe_motors.py)")
   parser.add_argument("--stand", choices=["neutral", "default"], default="neutral")
   parser.add_argument("--kp-scale", type=float, default=1.0)
   parser.add_argument("--policy-host", default=protocol.HOST, help="where policy_node runs")
@@ -349,6 +398,7 @@ def main() -> None:
   signal.signal(signal.SIGTERM, on_term)
   rec = Recording() if args.record else None
   node = make_node(args.deploy, args.net, args.stand, args.kp_scale,
+                   robot_name=args.robot, motor_layout=args.motor_layout,
                    policy_host=args.policy_host, bind_host=args.bind_host,
                    action_wait_s=args.action_wait_ms / 1e3,
                    action_timeout_s=args.action_timeout_s, max_steps=args.max_steps,

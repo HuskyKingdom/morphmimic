@@ -26,7 +26,7 @@ mirrors its torch original. Quaternions are wxyz.
 from __future__ import annotations
 
 import json
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 
 import numpy as np
@@ -158,6 +158,9 @@ class Robot:
   """DC-motor joints' stall torque [J], 0 for the built-in PD joints; None if none is."""
   dc_velocity_limit: np.ndarray | None = None
   """DC-motor joints' no-load speed [J] (the torque-speed curve reaches 0 there)."""
+  locked: np.ndarray = field(default_factory=lambda: np.zeros(0, np.int64))
+  """Native indices of the joints the real robot lacks (the 23-DoF G1's), locked at zero
+  in the model; empty for the other robots."""
 
   @property
   def num_native(self) -> int:
@@ -177,6 +180,7 @@ class Robot:
     """From a constants dict: a baked `robots/<name>.json`, or the `robot` entry of a
     deployment folder's `<name>.json` (`deploy/export_onnx.py`)."""
     tr, fk, dc = d["translator"], d["fk"], d.get("dc_motor")
+    native = list(d["native_joint_names"])
     return cls(
       name=d["robot"],
       native_joint_names=tuple(d["native_joint_names"]),
@@ -206,6 +210,7 @@ class Robot:
       effort_limit=np.asarray(d["pd"]["effort_limit"], np.float64),
       dc_saturation=None if dc is None else np.asarray(dc["saturation_effort"], np.float64),
       dc_velocity_limit=None if dc is None else np.asarray(dc["velocity_limit"], np.float64),
+      locked=np.asarray([native.index(j) for j in d.get("locked_joints", [])], np.int64),
     )
 
   def to_canonical(self, q: np.ndarray) -> np.ndarray:
@@ -216,9 +221,11 @@ class Robot:
 
   def targets(self, action: np.ndarray) -> np.ndarray:
     """Canonical action [29] -> native joint targets [J] (`CanonicalJointPositionAction`:
-    default + to_native_delta(a * scale); untracked joints held at the default)."""
+    default + to_native_delta(a * scale); untracked and locked joints held at the
+    default)."""
     delta = np.zeros(self.num_native)
     delta[self.perm] = self.sign * action * self.action_scale[self.perm]
+    delta[self.locked] = 0.0
     return self.default_joint_pos + delta
 
   def _tree_quats(self, q: np.ndarray) -> np.ndarray:

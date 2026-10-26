@@ -33,8 +33,11 @@ between body origins in the world frame (as `spec.leg_length`), left side where 
                (left_shoulder_pitch_link on all three)
 
 Every feature (log terms and geometry alike) is min-max scaled to [-1, 1] over the
-robots of `ROBOTS`; a feature equal on all of them maps to 0. Raw descriptors and the
-scaled table are cached per process; importing this module compiles no model.
+paper's three robots (`SCALE_ROBOTS`); a feature equal on all of them maps to 0. Other
+registry robots (the 23-DoF G1) use the same scaling, so the three robots' vectors do
+not change when a robot is added, and theirs may fall slightly outside [-1, 1]. Raw
+descriptors and the scaled table are cached per process; importing this module
+compiles no model.
 """
 
 from __future__ import annotations
@@ -52,6 +55,9 @@ if TYPE_CHECKING:
   from collections.abc import Iterable
 
   from morphmimic.robots.spec import RobotSpec
+
+# The robots whose descriptors fix the min-max scaling.
+SCALE_ROBOTS: tuple[str, ...] = ("g1", "x2", "t2")
 
 NUM_CANON = 29
 ACTUATOR_DIM = 4 * NUM_CANON
@@ -158,11 +164,13 @@ def _raw(name: str) -> np.ndarray:
 
 @cache
 def _table() -> dict[str, np.ndarray]:
-  """Per-feature min-max scaled [125] vector per registry robot."""
-  raw = np.stack([_raw(n) for n in ROBOTS])
-  lo, hi = raw.min(0), raw.max(0)
+  """Per-feature min-max scaled [125] vector per registry robot, with the range of
+  `SCALE_ROBOTS`."""
+  ref = np.stack([_raw(n) for n in SCALE_ROBOTS])
+  lo, hi = ref.min(0), ref.max(0)
   span = hi - lo
   const = span <= 1e-12 * np.maximum(1.0, np.abs(hi))
+  raw = np.stack([_raw(n) for n in ROBOTS])
   scaled = np.where(const, 0.0, 2 * (raw - lo) / np.where(const, 1.0, span) - 1)
   return {n: scaled[i] for i, n in enumerate(ROBOTS)}
 

@@ -36,6 +36,10 @@ back to the stand. `--from-stand` in the sim does the same from the stand, facin
   uv run --group export --group teleop python -m deploy.run --deploy <deploy_dir> \\
     --robot g1 --hardware g1 --net enp3s0 --teleop
 
+The 23-DoF G1 (an export of a g1_23 run): `--robot g1_23 --hardware g1_23`, with
+`--motor-layout compact` if `deploy/hardware/probe_motors.py` shows its motors numbered
+0..22 without gaps (`deploy/hardware/g1_node.py`).
+
 `<deploy_dir>` is an `export_onnx.py` folder (policy.onnx, <robot>.json); `<assets_dir>`
 is an `export_assets.py` folder (<robot>.xml, clips/<robot>/<clip>.npz). The two
 processes talk only through the `protocol` ZMQ messages, as on the robot.
@@ -84,8 +88,10 @@ def main() -> None:
   parser.add_argument("--viewer", choices=["none", "native"], default="none",
                       help="native: MuJoCo's live viewer (needs a display; real time)")
   parser.add_argument("--summary", type=Path, default=None)
-  parser.add_argument("--hardware", choices=["g1"], default=None,
+  parser.add_argument("--hardware", choices=["g1", "g1_23"], default=None,
                       help="drive the real robot instead of the sim (deploy.hardware.g1_node)")
+  parser.add_argument("--motor-layout", choices=["sdk", "compact"], default="sdk",
+                      help="hardware g1_23: motor numbering (deploy/hardware/probe_motors.py)")
   parser.add_argument("--net", default=None, help="hardware: network interface to the robot")
   parser.add_argument("--kp-scale", type=float, default=1.0, help="hardware: stiffness scale")
   parser.add_argument("--stand", choices=["neutral", "default"], default="neutral",
@@ -161,6 +167,7 @@ def main() -> None:
       signal.signal(signal.SIGTERM, on_term)
       rec = g1_node.Recording() if args.record else None
       node = g1_node.make_node(args.deploy, args.net, args.stand, args.kp_scale,
+                               robot_name=args.robot, motor_layout=args.motor_layout,
                                max_steps=args.max_steps, record=rec)
       try:
         node.run()

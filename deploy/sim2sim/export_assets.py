@@ -8,8 +8,10 @@ randomisation, floor friction 1.0, no actuator delay) and writes:
 - `deploy/sim2sim/robots/<robot>.json` (`--bake`): the robot constants of `obs.Robot`:
   native joint order, default pose, action scale, the canonical joint map, the
   kinematic tree from the root to the slot-0 and anchor bodies, the control timing,
-  the PD gains, and for DC-motor joints (the X2's) the torque-speed curve, which
-  `sim_node.py` applies to the explicit PD it computes for them. Committed.
+  the PD gains, for DC-motor joints (the X2's) the torque-speed curve, which
+  `sim_node.py` applies to the explicit PD it computes for them, and the locked joints
+  (the 23-DoF G1's), which the hardware node reads as zero and leaves unpowered.
+  Committed.
 - `<out>/<robot>.xml` (meshes in `<out>/meshes/<robot>/`): the env's scene as plain,
   readable MJCF: the robot with the actuators, armature, floor, friction and solver
   options training used, which the robot's own MJCF does not hold. The export reloads
@@ -149,6 +151,8 @@ def bake(env, robot: str) -> dict:
   }
   if "dc_motor" in pd:
     out["dc_motor"] = pd["dc_motor"]
+  if spec.locked_joints:
+    out["locked_joints"] = list(spec.locked_joints)
   return out
 
 
@@ -324,7 +328,7 @@ def export_clips(env, robot: str, yaml_path: str, clips: list[str], out: Path) -
 
 def main() -> None:
   parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
-  parser.add_argument("--robot", required=True, choices=["g1", "x2", "t2"])
+  parser.add_argument("--robot", required=True, choices=["g1", "x2", "t2", "g1_23"])
   parser.add_argument("--subset-yaml", required=True)
   parser.add_argument("--clips", nargs="+", required=True)
   parser.add_argument("--out", type=Path, required=True)

@@ -9,7 +9,7 @@ last `CHUNK` frames are kept in a ring and republished with every message, so a 
 packet costs nothing: the sim de-duplicates by `frame_index`, which counts up from 0 at
 process start and never resets (not even on recalibration).
 
-Run: `python -m deploy.vr_teleop.streamer --robot g1|x2|t2 [--replay F] [--record F]
+Run: `python -m deploy.vr_teleop.streamer --robot g1|x2|t2|g1_23 [--replay F] [--record F]
 [--port N]`.
 """
 
@@ -100,7 +100,7 @@ def main() -> None:
   )
   p.add_argument("--record", metavar="F", help="save the incoming samples to F (.npz)")
   p.add_argument("--port", type=int, default=PORT)
-  p.add_argument("--robot", required=True, choices=["g1", "x2", "t2"],
+  p.add_argument("--robot", required=True, choices=["g1", "x2", "t2", "g1_23"],
                  help="the robot GMR retargets to (the policy node's)")
   p.add_argument("--human-height", type=float, default=None,
                  help="operator height (m) for GMR's scaling (default: its 1.8 m)")

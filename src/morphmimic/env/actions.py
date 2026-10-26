@@ -4,8 +4,11 @@ The policy acts in the canonical 29-joint space for every robot. The term maps a
 canonical action onto the robot's native actuators through its translator: native
 target = default pose + `to_native_delta(a * scale)`, with each canonical slot scaled
 by the scale of the native actuator it drives. Untracked joints (the X2/T2 heads) get
-no delta, so they are held at their default pose. For the G1 (identity translator)
-this is mjlab's `JointPositionAction`, value for value.
+no delta, so they are held at their default pose. Locked joints (the 23-DoF G1's,
+`RobotSpec.locked_joints`) get no delta either: their PD holds zero and helps the lock
+instead of pushing the hinge against it, so the policy's action on those slots has no
+effect, as on the real robot, which has no motor there. For the G1 (identity
+translator) this is mjlab's `JointPositionAction`, value for value.
 """
 
 from __future__ import annotations
@@ -37,7 +40,8 @@ class CanonicalJointPositionAction(JointPositionAction):
     super().__init__(cfg=cfg, env=env)
     if not cfg.use_default_offset:
       raise ValueError("CanonicalJointPositionAction needs use_default_offset=True.")
-    tr = get_robot(cfg.robot_name).translator
+    spec = get_robot(cfg.robot_name)
+    tr = spec.translator
     # Action index == native joint index: the translator indexes native joints.
     if self._target_ids.tolist() != list(range(tr.num_native)):
       raise ValueError(
@@ -48,6 +52,10 @@ class CanonicalJointPositionAction(JointPositionAction):
     self._sign = torch.as_tensor(tr.sign, dtype=torch.float32, device=self.device)
     scale = torch.as_tensor(self._scale, dtype=torch.float32, device=self.device)
     self._scale_canon = scale.expand(self.num_envs, tr.num_native)[:, self._perm]
+    self._locked = torch.as_tensor(
+      [spec.native_index(j) for j in spec.locked_joints], dtype=torch.long,
+      device=self.device,
+    )
     self._action_dim = NUM_JOINTS
     self._raw_actions = torch.zeros(self.num_envs, NUM_JOINTS, device=self.device)
 
@@ -56,6 +64,7 @@ class CanonicalJointPositionAction(JointPositionAction):
     self._raw_actions[:] = actions
     delta = torch.zeros_like(self._processed_actions)
     delta[:, self._perm] = self._sign * self._raw_actions * self._scale_canon
+    delta[:, self._locked] = 0.0
     self._processed_actions = delta + self._offset
     if self.cfg.clip is not None:
       self._processed_actions = torch.clamp(

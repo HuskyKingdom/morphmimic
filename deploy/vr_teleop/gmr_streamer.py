@@ -96,6 +96,9 @@ class ReferenceBuilder:
     pose = self.gmr.retarget(body)
     stand = self._stand["joint_pos"]
     q = np.array([pose.joint_pos.get(n, stand[n]) for n in self.robot.native_joint_names])
+    # The 23-DoF G1's locked joints: zero in the reference, as in its training clips. The
+    # body poses below stay those of GMR's 29-DoF IK, a few cm off at the hands.
+    q[self.robot.locked] = 0.0
     data = self.gmr.gmr.configuration.data
     pos = data.xpos[self._bodies].copy()
     pos[:, 2] += self.z_offset

@@ -1,0 +1,5 @@
+# Scripts that run on Linux keep LF endings even in a Windows checkout.
+*.sh text eol=lf
+*.sbatch text eol=lf
+docker/Dockerfile text eol=lf
+.dockerignore text eol=lf

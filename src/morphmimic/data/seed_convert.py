@@ -344,6 +344,10 @@ def convert_clip(
   root_pos, root_quat, joint_pos = resample(
     *parse_csv(csv_path, spec), in_fps, out_fps
   )
+  # Joints the robot lacks (the 23-DoF G1 reads the G1 CSVs): the clip is played with
+  # them at zero, and the body kinematics below follow.
+  for joint in spec.locked_joints:
+    joint_pos[:, spec.native_index(joint)] = 0.0
   fk = forward_kinematics(
     model,
     root_pos,

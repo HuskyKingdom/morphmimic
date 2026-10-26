@@ -10,6 +10,7 @@ _TASKS = {
   "g1": "MorphMimic-Tracking-Flat-Unitree-G1",
   "x2": "MorphMimic-Tracking-Flat-AgiBot-X2",
   "t2": "MorphMimic-Tracking-Flat-Booster-T2",
+  "g1_23": "MorphMimic-Tracking-Flat-Unitree-G1-23DoF",
 }
 
 for _name, _task_id in _TASKS.items():
